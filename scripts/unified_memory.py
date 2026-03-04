@@ -175,7 +175,11 @@ def search_entities(keyword: str, limit: int = 5):
         if not filename.endswith('.json'):
             continue
         
+        # 安全验证：确保路径在允许的目录内
         filepath = os.path.join(ENTITIES_DIR, filename)
+        real_path = os.path.realpath(filepath)
+        if not real_path.startswith(os.path.realpath(ENTITIES_DIR)):
+            continue
         with open(filepath, 'r') as f:
             data = json.load(f)
         

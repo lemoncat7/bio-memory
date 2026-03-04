@@ -60,7 +60,10 @@ def check_and_reflect():
     
     if count >= 20:
         print(f"📝 短期记忆达到 {count} 条，触发反思归纳...")
-        os.system(f"python3 {SCRIPT_DIR}/unified_memory.py dna_reflect")
+        import subprocess
+        # 使用绝对路径，避免动态字符串
+        script_path = os.path.join(SCRIPT_DIR, "unified_memory.py")
+        subprocess.run(["python3", script_path, "dna_reflect"], check=False)
 
 
 def extract_key_points(content: str) -> list:

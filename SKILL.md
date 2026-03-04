@@ -1,6 +1,7 @@
 ---
 name: bio-memory
 description: "莫殇的 DNA 记忆系统 - 自动记录对话、反思归纳、遗忘机制"
+license: MIT
 ---
 
 # Bio-Memory Pro
