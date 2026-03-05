@@ -24,7 +24,16 @@ import uuid
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-# 目录配置
+# 头部添加导入
+import os
+import sys
+# L-Index 导入
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+try:
+    import lindex as lidx
+    HAS_LINDEX = True
+except:
+    HAS_LINDEX = False
 MEMORY_DIR = os.path.expanduser("~/.openclaw/workspace/memory")
 ENTITIES_DIR = os.path.join(MEMORY_DIR, "entities")
 LAYER3_FILE = os.path.expanduser("~/.openclaw/workspace/MEMORY.md")
@@ -580,26 +589,172 @@ def retrieve(mode: str = "standard"):
         dna_stats()
 
 
+# ============ 统一入口 ============
+
+def unified_search(query: str):
+    """统一检索所有记忆层"""
+    results = {"dna": [], "entities": [], "daily": [], "learnings": [], "episodic": []}
+    query_lower = query.lower()
+    
+    # 1. DNA 记忆搜索
+    st = dna_load_json(SHORT_TERM_FILE)
+    lt = dna_load_json(LONG_TERM_FILE)
+    for mem in st.get("memories", []) + lt.get("memories", []):
+        if query_lower in mem.get("content", "").lower():
+            results["dna"].append({
+                "content": mem.get("content", "")[:100],
+                "type": mem.get("type", "fact"),
+                "layer": "short" if mem in st.get("memories", []) else "long"
+            })
+    
+    # 2. 实体搜索
+    if os.path.exists(ENTITIES_DIR):
+        for f in os.listdir(ENTITIES_DIR):
+            if f.endswith(".json"):
+                with open(os.path.join(ENTITIES_DIR, f)) as fp:
+                    data = json.load(fp)
+                    for fact in data.get("facts", []):
+                        if query_lower in fact.get("content", "").lower():
+                            results["entities"].append({
+                                "entity": data.get("entity", ""),
+                                "content": fact.get("content", "")[:80],
+                                "category": fact.get("category", "")
+                            })
+    
+    # 3. 日记搜索
+    daily_dir = os.path.join(MEMORY_DIR, "daily")
+    if os.path.exists(daily_dir):
+        for f in os.listdir(daily_dir):
+            if f.endswith(".md"):
+                with open(os.path.join(daily_dir, f)) as fp:
+                    content = fp.read()
+                    if query_lower in content.lower():
+                        results["daily"].append({"file": f, "match": True})
+    
+    # 4. learnings 搜索
+    learnings_file = os.path.join(MEMORY_DIR, "learnings.md")
+    if os.path.exists(learnings_file):
+        with open(learnings_file) as fp:
+            content = fp.read()
+            if query_lower in content.lower():
+                results["learnings"].append({"match": True})
+    
+    # 5. episodic 搜索
+    episodic_dir = os.path.join(MEMORY_DIR, "episodic")
+    if os.path.exists(episodic_dir):
+        for f in os.listdir(episodic_dir):
+            if f.endswith(".md"):
+                with open(os.path.join(episodic_dir, f)) as fp:
+                    content = fp.read()
+                    if query_lower in content.lower():
+                        results["episodic"].append({"file": f, "match": True})
+    
+    # 打印结果
+    print(f"🔍 搜索: {query}")
+    print("")
+    
+    total = 0
+    if results["dna"]:
+        print(f"[DNA 记忆] {len(results['dna'])} 条")
+        for r in results["dna"][:3]:
+            print(f"  • {r['content']} ({r['type']})")
+        total += len(results["dna"])
+    
+    if results["entities"]:
+        print(f"[实体] {len(results['entities'])} 条")
+        for r in results["entities"][:3]:
+            print(f"  • {r['entity']}: {r['content']}")
+        total += len(results["entities"])
+    
+    if results["daily"]:
+        print(f"[日记] {len(results['daily'])} 个文件")
+        total += len(results["daily"])
+    
+    if results["learnings"]:
+        print(f"[知识库] 匹配")
+        total += 1
+    
+    if results["episodic"]:
+        print(f"[事件] {len(results['episodic'])} 个文件")
+        total += len(results["episodic"])
+    
+    print(f"\n总计: {total} 个匹配")
+
+
+def unified_reflect():
+    """统一反思：DNA + 实体 + 日记 + 知识"""
+    print("=== 统一反思 ===\n")
+    
+    # 1. DNA 反思
+    print("1️⃣ DNA 记忆反思...")
+    dna_reflect()
+    
+    # 2. 提取实体
+    print("\n2️⃣ 提取实体...")
+    st = dna_load_json(SHORT_TERM_FILE)
+    entities_found = set()
+    for mem in st.get("memories", []):
+        content = mem.get("content", "")
+        # 简单提取：搜索人名、项目名等
+        import re
+        # 匹配中文名
+        names = re.findall(r'[\u4e00-\u9fa5]{2,4}(?=说|哥|叔|姐|弟)', content)
+        for name in names:
+            entities_found.add(name)
+        # 匹配项目
+        projects = re.findall(r'[\"\'](.+?)[\"\']', content)
+        for p in projects:
+            if len(p) > 2:
+                entities_found.add(p)
+    
+    if entities_found:
+        for entity in list(entities_found)[:5]:
+            print(f"  发现实体: {entity}")
+    
+    # 3. 更新日记
+    print("\n3️⃣ 更新日记...")
+    today = datetime.now().strftime("%Y-%m-%d")
+    daily_file = os.path.join(MEMORY_DIR, "daily", f"{today}.md")
+    os.makedirs(os.path.dirname(daily_file), exist_ok=True)
+    
+    if not os.path.exists(daily_file):
+        with open(daily_file, "w") as f:
+            f.write(f"# {today} 日记\n\n## 事件\n\n")
+    
+    # 4. 检查 learnings
+    print("\n4️⃣ 知识库检查...")
+    learnings_file = os.path.join(MEMORY_DIR, "learnings.md")
+    if not os.path.exists(learnings_file):
+        with open(learnings_file, "w") as f:
+            f.write("# 学习记录\n\n")
+    
+    print("\n✅ 统一反思完成")
+
+
 def main():
     if len(sys.argv) < 2:
-        print("用法: memory.py {init|add|search|decide|checkpoint|retrieve|save|detect|dna_*}")
+        print("用法: unified_memory.py <命令> [参数]")
         print("")
-        print("  基础功能:")
-        print("    init              - 初始化目录")
-        print("    add <实体> <类别> <事实>")
-        print("    search <关键词>   - 搜索实体")
-        print("    checkpoint        - 提取检查点")
-        print("    retrieve [quick|standard|deep]")
-        print("    save <内容> [来源]")
-        print("    detect <文本>    - 智能检测信息类型")
+        print("=== 统一入口 ===")
+        print("  unified search <关键词>  - 搜索所有记忆层（DNA + L0 + L1）")
+        print("  unified reflect       - 统一反思")
+        print("  retrieve [quick|standard|deep] - 分层查看")
         print("")
-        print("  DNA Memory 功能:")
-        print("    dna_remember <内容> [类型] [重要性]")
-        print("    dna_recall <关键词>")
-        print("    dna_reflect      - 反思归纳")
-        print("    dna_decay        - 遗忘衰减")
-        print("    dna_link <id1> <id2> <关系>")
-        print("    dna_stats        - 统计信息")
+        print("=== L-Index ===")
+        print("  l0 add <时间> <摘要>   - 添加时间索引")
+        print("  l0 load               - 加载最近时间索引")
+        print("  l0 search <关键词>    - 搜索时间索引")
+        print("  l1 add <主题> <内容> <结论> - 添加决策")
+        print("  l1 load [月份]       - 加载决策")
+        print("  l1 search <关键词>   - 搜索决策")
+        print("  l2 update <会话文件>  - 更新对话索引")
+        print("  l2 load <时间>        - 加载对话")
+        print("")
+        print("=== DNA Memory ===")
+        print("  dna_remember <内容> [类型] [重要性]")
+        print("  dna_recall <关键词>")
+        print("  dna_reflect")
+        print("  dna_stats")
         sys.exit(1)
     
     cmd = sys.argv[1]
@@ -609,8 +764,9 @@ def main():
     elif cmd == "add" and len(sys.argv) >= 5:
         add_entity(sys.argv[2], sys.argv[3], sys.argv[4])
     elif cmd == "search" and len(sys.argv) >= 3:
-        for r in search_entities(sys.argv[2]):
-            print(f"  [{r['entity']}] {r['fact']}")
+        # 统一搜索: DNA + L0 + L1
+        from lindex import unified_search
+        unified_search(sys.argv[2])
     elif cmd == "checkpoint":
         extract_checkpoint()
     elif cmd == "retrieve":
@@ -636,6 +792,49 @@ def main():
         dna_link(sys.argv[2], sys.argv[3], sys.argv[4])
     elif cmd == "dna_stats":
         dna_stats()
+    elif cmd == "unified" and len(sys.argv) >= 3:
+        if sys.argv[2] == "search" and len(sys.argv) >= 4:
+            unified_search(sys.argv[3])
+        elif sys.argv[2] == "reflect":
+            unified_reflect()
+        else:
+            print("用法: unified {search <关键词>|reflect}")
+    elif cmd == "l0" and HAS_LINDEX:
+        if len(sys.argv) < 3:
+            for r in lidx.l0_load_recent():
+                print(f"\n=== {r['month']} ===")
+                print(r['content'])
+        elif sys.argv[2] == "add" and len(sys.argv) >= 4:
+            print(lidx.l0_add_entry(sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else ""))
+        elif sys.argv[2] == "search" and len(sys.argv) >= 4:
+            for r in lidx.l0_search(sys.argv[3]):
+                print(f"  {r['month']}: 匹配")
+    elif cmd == "l1" and HAS_LINDEX:
+        if len(sys.argv) < 3:
+            print(lidx.l1_load())
+        elif sys.argv[2] == "add" and len(sys.argv) >= 4:
+            print(lidx.l1_add_decision(
+                sys.argv[3] if len(sys.argv) > 3 else "",  # time_str
+                sys.argv[4] if len(sys.argv) > 4 else "",  # topic
+                sys.argv[5] if len(sys.argv) > 5 else "",  # background
+                sys.argv[6] if len(sys.argv) > 6 else "",  # decision
+                sys.argv[7] if len(sys.argv) > 7 else "",  # code
+                sys.argv[8] if len(sys.argv) > 8 else ""   # result
+            ))
+        elif sys.argv[2] == "load" and len(sys.argv) >= 4:
+            print(lidx.l1_load(sys.argv[3]))
+        elif sys.argv[2] == "search" and len(sys.argv) >= 4:
+            for r in lidx.l1_search(sys.argv[3]):
+                print(f"  {r['month']}: 匹配")
+        elif sys.argv[2] == "recent1":
+            hours = 1
+            for r in lidx.l1_recent(hours):
+                print(r)
+    elif cmd == "l2" and HAS_LINDEX:
+        if sys.argv[2] == "update" and len(sys.argv) >= 4:
+            print(lidx.l2_update_index(sys.argv[3]))
+        elif sys.argv[2] == "load" and len(sys.argv) >= 4:
+            print(lidx.l2_load_by_time(sys.argv[3])[:500])
     else:
         print("参数错误")
         sys.exit(1)
