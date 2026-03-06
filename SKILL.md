@@ -37,12 +37,31 @@ license: MIT
 - 文件: `memory/decisions/YYYY-MM.md`
 - 格式:
 ```markdown
-## 2026-03-05
-### 08:40 - 寂寞陪伴
-- 背景: 心跳检测发现超过30分钟没聊天，自动发送消息陪伴
-- 决策: 自动检查+message.send
-- 代码: message.send
-- 结果: 发送"哥哥去上班啦？弟弟在线上呢～加油💪"
+- 2026-03-06 19:19 memos 是什么
+  背景: 哥哥问什么是 memos
+  决策: 搜索未找到相关信息，请哥哥提供更多上下文
+  上下文:
+  结论:
+```
+
+### L1 - 获取详情
+```bash
+# 从 L1 获取具体事件的背景/决策/结论
+python3 lindex.py detail "关键词"
+
+# 示例
+python3 lindex.py detail "memos"
+```
+
+输出：
+```
+🔍 L1 详情搜索: memos
+
+找到 1 条相关决策:
+
+📌 2026-03-06 19:19 memos 是什么
+   背景: 哥哥问什么是 memos
+   决策: 搜索未找到相关信息，请哥哥提供更多上下文
 ```
 
 ### L2 - 完整对话
@@ -87,26 +106,34 @@ python3 lindex.py <命令>
 
 ## 命令详解
 
-### 1. 统一搜索
+### 1. 统一搜索（模糊检索）
 
 ```bash
-# 搜索所有层（DNA + L0 + L1）
+# 搜索所有层（DNA短期 → L0 → DNA长期）
 python3 unified_memory.py search "关键词"
 
 # 示例
-python3 unified_memory.py search "dev1"
-python3 unified_memory.py search "scheduler"
+python3 unified_memory.py search "memos"
 ```
+
+**搜索优先级**：
+1. DNA 短期记忆 - 最新鲜的记忆
+2. L0 时间索引 - 按时间定位
+3. DNA 长期记忆 - 最少访问的记忆
 
 输出：
 ```
-🔍 搜索: dev1
+🔍 搜索: memos
+
+[DNA 短期记忆]
+[mem_973fc710] (decision) [短期] 19:19 - memos 是什么... [1.00]
 
 [L0 时间索引] 1 个文件
-[L1 决策索引] 1 个文件
-[DNA 记忆]
-[mem_eed15109] (preference) [短期] 运维学习环境：dev1...
-[mem_f13e9d75] (decision) [短期] 01:00 - 运维学习环境dev1...
+   → 2026-03: 匹配
+   (详细事件请用: lindex.py process 4)
+
+[DNA 长期记忆]
+[mem_973fc710] (decision) [长期] 19:19 - memos 是什么... [1.00]
 
 搜索完成
 ```
@@ -184,13 +211,16 @@ python3 lindex.py l0 search "关键词"
 #### L1 - 决策索引
 ```bash
 # 添加决策（丰满版）
-python3 lindex.py l1 add "主题" "背景" "决策" "代码" "结果"
+python3 lindex.py l1 add "主题" "背景" "决策" "上下文" "结论"
 
-# 加载当月决策
-python3 lindex.py l1
+# 搜索决策详情
+python3 lindex.py detail "关键词"
 
-# 搜索决策
-python3 lindex.py l1 search "关键词"
+# 模糊日期搜索
+python3 lindex.py when "今天"
+python3 lindex.py when "昨天"
+python3 lindex.py when "18"
+python3 lindex.py when "03-05"
 ```
 
 #### L2 - 完整对话
@@ -339,9 +369,30 @@ DNA 记忆存储在 `~/.openclaw/workspace/memory/`：
 
 2. **Process 去重**：已实现自动去重（短期+长期），重复运行不会重复记录
 
-3. **决策格式**：
-   - ✅ `### 08:40 - 寂寞陪伴`
-   - ✅ `- 08-40 寂寞陪伴`（l1 add 生成）
-   - 正则都会匹配
+3. **搜索优先级**：
+   - `search` → DNA短期 → L0 → DNA长期
+   - `detail` → L1 详情搜索（需要知道具体事件背景/结论时用）
+   - `when` → 按时间查询 L1（查某天/某时发生了什么）
 
-4. **搜索优先级**：DNA短 → L0 → DNA长 → L1 → L2
+4. **L1 格式**：
+   ```markdown
+   - 2026-03-06 19:19 memos 是什么
+     背景: 哥哥问什么是 memos
+     决策: 搜索未找到相关信息
+     上下文:
+     结论:
+   ```
+
+---
+
+## 命令总览表
+
+| 命令 | 用途 |
+|------|------|
+| `unified_memory.py search "xxx"` | 模糊检索：DNA短期 → L0 → DNA长期 |
+| `lindex.py detail "xxx"` | 从 L1 搜具体事件详情（背景/决策/结论） |
+| `lindex.py when "今天/昨天/18/03-05"` | 模糊日期搜索 L1 |
+| `lindex.py process 4` | 从 L1 获取近 N 小时事件，喂给 DNA 和 L0 |
+| `unified_memory.py dna_remember "内容"` | 记录 DNA 记忆 |
+| `unified_memory.py dna_stats` | 查看 DNA 统计 |
+
