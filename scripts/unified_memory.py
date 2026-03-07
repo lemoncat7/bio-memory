@@ -343,12 +343,27 @@ def dna_remember(content: str, m_type: str = "fact", importance: float = 0.5):
     print(f"✅ 已记录 DNA 记忆: [{memory['id']}] {content[:50]}...")
 
 
-def dna_recall(query: str, limit: int = 5):
-    """回忆相关记忆 (带动态权重)"""
+def dna_recall(query: str, limit: int = 5, short_only: bool = False, long_only: bool = False):
+    """回忆相关记忆 (带动态权重)
+    
+    Args:
+        query: 搜索关键词
+        limit: 返回结果数量限制
+        short_only: 只搜索短期记忆
+        long_only: 只搜索长期记忆
+    """
     results = []
     query_lower = query.lower()
     
-    for file in [SHORT_TERM_FILE, LONG_TERM_FILE]:
+    files_to_search = []
+    if short_only:
+        files_to_search = [SHORT_TERM_FILE]
+    elif long_only:
+        files_to_search = [LONG_TERM_FILE]
+    else:
+        files_to_search = [SHORT_TERM_FILE, LONG_TERM_FILE]
+    
+    for file in files_to_search:
         data = dna_load_json(file)
         for mem in data.get("memories", []):
             content = mem.get("content", "").lower()

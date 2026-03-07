@@ -96,11 +96,66 @@ def l1_get_file():
 
 def l1_add_decision(time_str: str, topic: str, background: str = "", decision: str = "", code: str = "", result: str = ""):
     """添加决策 - 丰满版"""
+    import re
     file_path = l1_get_file()
     
-    # 生成日期部分
-    date_part = time_str[:10] if len(time_str) >= 10 else datetime.now().strftime('%Y-%m-%d')
-    time_part = time_str[11:16] if len(time_str) >= 16 else datetime.now().strftime('%H:%M')
+    # 强大的日期时间解析 - 支持多种格式，强制输出 YYYY-MM-DD HH:MM
+    # 支持格式: 
+    #   YYYY-MM-DD-HH:MM
+    #   YYYY-MM-DD HH:MM
+    #   YYYY-MM-DD-HHMM
+    #   YYYY-MM-DD
+    #   HH:MM
+    #   now
+    
+    # 清理输入
+    time_str = time_str.strip().replace(' ', '-')
+    
+    # 尝试各种模式
+    match = None
+    patterns = [
+        r'^(\d{4})-(\d{1,2})-(\d{1,2})-(\d{1,2}):(\d{2})$',  # YYYY-M-D-H:MM
+        r'^(\d{4})-(\d{1,2})-(\d{1,2})-(\d{1,2})(\d{2})$',   # YYYY-M-D-HHMM
+        r'^(\d{4})-(\d{1,2})-(\d{1,2})$',                     # YYYY-M-D
+        r'^(\d{1,2}):(\d{2})$',                               # HH:MM
+    ]
+    
+    now = datetime.now()
+    
+    for pattern in patterns:
+        match = re.match(pattern, time_str)
+        if match:
+            break
+    
+    if match:
+        groups = match.groups()
+        groups_len = len(groups)
+        
+        if groups_len == 5:  # YYYY-MM-DD-HH:MM
+            year, month, day = int(groups[0]), int(groups[1]), int(groups[2])
+            hour = int(groups[3])
+            minute = int(groups[4])
+        elif groups_len == 4:  # YYYY-MM-DD-HHMM
+            year, month, day = int(groups[0]), int(groups[1]), int(groups[2])
+            hour = int(groups[3][0:2])
+            minute = int(groups[3][2:4])
+        elif groups_len == 3:  # YYYY-MM-DD
+            year, month, day = int(groups[0]), int(groups[1]), int(groups[2])
+            hour, minute = 0, 0
+        elif groups_len == 2:  # HH:MM
+            year, month, day = now.year, now.month, now.day
+            hour, minute = int(groups[0]), int(groups[1])
+        else:
+            year, month, day = now.year, now.month, now.day
+            hour, minute = 0, 0
+    else:
+        # 默认当前时间
+        year, month, day = now.year, now.month, now.day
+        hour, minute = 0, 0
+    
+    # 强制格式化
+    date_part = f"{year:04d}-{month:02d}-{day:02d}"
+    time_part = f"{hour:02d}:{minute:02d}"
     
     # 读取现有内容
     existing_content = ""
@@ -114,12 +169,12 @@ def l1_add_decision(time_str: str, topic: str, background: str = "", decision: s
     else:
         header = ""
     
-    # 丰满格式
-    entry = f"""{header}- {time_part} {topic}
+    # 丰满格式（带日期前缀以兼容L0处理）
+    entry = f"""{header}- {date_part} {time_part} {topic}
   背景: {background}
   决策: {decision}
-  代码: {code}
-  结果: {result}
+  上下文: {code}
+  结论: {result}
 """
     
     with open(file_path, "a") as f:
@@ -142,7 +197,7 @@ def l1_load(month: str = None):
 
 
 def l1_search(keyword: str):
-    """搜索决策"""
+    """搜索决策 - 简单返回匹配的文件"""
     results = []
     for f in os.listdir(DECISIONS_DIR):
         if f.endswith(".md"):
@@ -152,6 +207,148 @@ def l1_search(keyword: str):
                 if keyword.lower() in content.lower():
                     results.append({"month": f.replace(".md", ""), "match": True})
     return results
+
+
+def l1_search_detail(keyword: str):
+    """搜索决策详情 - 返回具体事件的背景/决策/结论"""
+    import re
+    
+    print(f"\n🔍 L1 详情搜索: {keyword}\n")
+    
+    # 匹配丰满版 L1 格式
+    # - YYYY-MM-DD HH:MM Topic
+    #   背景: xxx
+    #   决策: xxx
+    #   上下文: xxx
+    #   结论: xxx
+    
+    pattern = rf"- (\d{{4}}-\d{{2}}-\d{{2}}) (\d{{2}}:\d{{2}}) ([^\n]+)\n(?:  背景: ([^\n]+)\n)?(?:  决策: ([^\n]+)\n)?(?:  上下文: ([^\n]+)\n)?(?:  结论: ([^\n]+)\n)?"
+    
+    results = []
+    for f in os.listdir(DECISIONS_DIR):
+        if f.endswith(".md"):
+            path = os.path.join(DECISIONS_DIR, f)
+            with open(path) as fp:
+                content = fp.read()
+                matches = re.findall(pattern, content, re.MULTILINE)
+                
+                for m in matches:
+                    date, time, topic, background, decision, context, conclusion = m
+                    if keyword.lower() in topic.lower() or keyword.lower() in (background or "").lower() or keyword.lower() in (conclusion or "").lower():
+                        results.append({
+                            "date": date,
+                            "time": time,
+                            "topic": topic.strip(),
+                            "background": background.strip() if background else "",
+                            "decision": decision.strip() if decision else "",
+                            "context": context.strip() if context else "",
+                            "conclusion": conclusion.strip() if conclusion else ""
+                        })
+    
+    if not results:
+        print(f"未找到包含 '{keyword}' 的 L1 决策")
+        return
+    
+    print(f"找到 {len(results)} 条相关决策:\n")
+    for r in results:
+        print(f"📌 {r['date']} {r['time']} {r['topic']}")
+        if r['background']:
+            print(f"   背景: {r['background']}")
+        if r['decision']:
+            print(f"   决策: {r['decision']}")
+        if r['conclusion']:
+            print(f"   结论: {r['conclusion']}")
+        print()
+
+
+def l1_when(query: str):
+    """模糊日期搜索 - 支持: 今天/昨天/日期/时间"""
+    import re
+    from datetime import datetime, timedelta
+    
+    print(f"\n🔍 查询: {query}\n")
+    
+    now = datetime.now()
+    
+    # 解析查询
+    target_dates = []
+    
+    query = query.lower().strip()
+    
+    if "今天" in query:
+        target_dates = [now.strftime("%m-%d")]
+    elif "昨天" in query:
+        yesterday = now - timedelta(days=1)
+        target_dates = [yesterday.strftime("%m-%d")]
+    else:
+        # 尝试解析具体日期
+        # 格式: 2026-03-06, 03-06, 19:19, 19
+        match_date = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})", query)
+        if match_date:
+            target_dates = [f"{match_date.group(2)}-{match_date.group(3)}"]
+        
+        match_md = re.search(r"(\d{1,2})-(\d{1,2})", query)
+        if match_md:
+            target_dates = [f"{match_md.group(1)}-{match_md.group(2)}"]
+        
+        match_hour = re.search(r"^(\d{1,2})$", query)
+        if match_hour:
+            # 只搜索某个小时
+            hour_str = match_hour.group(1).zfill(2)
+            # 当天的这个小时
+            target_dates = [now.strftime("%m-%d")]
+            hour_filter = hour_str
+        else:
+            hour_filter = None
+    
+    # 搜索 L1 决策文件
+    pattern = rf"- (\d{{4}}-\d{{2}}-\d{{2}}) (\d{{2}}:\d{{2}}) ([^\n]+)\n(?:  背景: ([^\n]+)\n)?(?:  决策: ([^\n]+)\n)?(?:  上下文: ([^\n]+)\n)?(?:  结论: ([^\n]+)\n)?"
+    
+    results = []
+    for f in os.listdir(DECISIONS_DIR):
+        if f.endswith(".md"):
+            path = os.path.join(DECISIONS_DIR, f)
+            with open(path) as fp:
+                content = fp.read()
+                matches = re.findall(pattern, content, re.MULTILINE)
+                
+                for m in matches:
+                    date, time, topic, background, decision, context, conclusion = m
+                    md = date[5:]  # MM-DD
+                    
+                    # 检查日期匹配
+                    date_match = any(md == td for td in target_dates) if target_dates else True
+                    
+                    # 检查小时匹配
+                    hour_match = True
+                    if 'hour_filter' in dir() and hour_filter:
+                        hour_match = time.startswith(hour_filter)
+                    
+                    if date_match and hour_match:
+                        results.append({
+                            "date": date,
+                            "time": time,
+                            "topic": topic.strip(),
+                            "background": background.strip() if background else "",
+                            "decision": decision.strip() if decision else "",
+                            "context": context.strip() if context else "",
+                            "conclusion": conclusion.strip() if conclusion else ""
+                        })
+    
+    if not results:
+        print(f"未找到 {query} 相关的决策")
+        return
+    
+    print(f"找到 {len(results)} 条决策:\n")
+    for r in sorted(results, key=lambda x: x["date"] + x["time"], reverse=True):
+        print(f"📌 {r['date']} {r['time']} {r['topic']}")
+        if r['background']:
+            print(f"   背景: {r['background']}")
+        if r['decision']:
+            print(f"   决策: {r['decision']}")
+        if r['conclusion']:
+            print(f"   结论: {r['conclusion']}")
+        print()
 
 
 def l1_recent(hours: int = 1):
@@ -254,25 +451,25 @@ def l2_load_by_time(time_hour: str):
 # ============ 统一搜索 ============
 
 def unified_search(query: str):
-    """统一搜索"""
+    """模糊检索 - 优先级: DNA短期 > L0 > DNA长期"""
     print(f"🔍 搜索: {query}\n")
     
-    results = {"l0": [], "l1": [], "dna": [], "l2": []}
-    
-    # L0 搜索
-    l0_results = l0_search(query)
-    print(f"[L0 时间索引] {len(l0_results)} 个文件")
-    results["l0"] = l0_results
-    
-    # L1 搜索
-    l1_results = l1_search(query)
-    print(f"[L1 决策索引] {len(l1_results)} 个文件")
-    results["l1"] = l1_results
-    
-    # DNA 搜索 (调用 DNA Memory)
+    # 1. DNA 短期记忆 - 最新鲜的记忆，优先返回
     from unified_memory import dna_recall
-    print(f"[DNA 记忆]")
-    dna_recall(query)
+    print(f"[DNA 短期记忆]")
+    dna_recall(query, limit=5, short_only=True)
+    
+    # 2. L0 时间索引
+    l0_results = l0_search(query)
+    print(f"\n[L0 时间索引] {len(l0_results)} 个文件")
+    if l0_results:
+        for r in l0_results:
+            print(f"   → {r['month']}: 匹配")
+        print("   (详细事件请用: lindex.py process 4)")
+    
+    # 3. DNA 长期记忆 - 最少被访问
+    print(f"\n[DNA 长期记忆]")
+    dna_recall(query, limit=3, long_only=True)
     
     print(f"\n搜索完成")
 
@@ -292,6 +489,7 @@ def process_recent_decisions(hours: int = 1):
     # 1. 获取近N小时的决策记录
     now = datetime.now()
     decisions = []
+    import re
     
     # 读取当月所有决策文件
     for f in os.listdir(DECISIONS_DIR):
@@ -299,41 +497,46 @@ def process_recent_decisions(hours: int = 1):
             month_file = os.path.join(DECISIONS_DIR, f)
             with open(month_file) as fp:
                 content = fp.read()
+    
+    # 匹配 L1 格式: - 2026-03-05 HH:MM 主题
+    pattern_l1 = r"- (\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}) ([^\n]+)"
+    matches = re.findall(pattern_l1, content)
+    
+    current_hour = now.hour
+    print(f"当前小时: {current_hour}, 最近{hours}小时")
+    
+    # 筛选最近N小时
+    today_str = now.strftime("%m-%d")
+    yesterday = now - timedelta(days=1)
+    yesterday_str = yesterday.strftime("%m-%d")
+    
+    for m in matches:
+        y, mm, dd, h, m_min, topic = m[0], m[0][5:7], m[0][8:10], m[1], m[2], m[3]
+        hour = int(h)
+        day = f"{mm}-{dd}"
         
-        # 解析决策条目 - 匹配多种格式:
-        # 格式1: ### HH:MM - 主题 (新格式)
-        # 格式2: - HH:MM 主题 (旧格式)  
-        # 格式3: - HH-MM 主题 (l1_add生成的格式)
-        import re
+        # 只检查今天或昨天
+        if day not in [today_str, yesterday_str]:
+            continue
         
-        # 尝试匹配新格式 ### HH:MM - 主题
-        pattern_new = r"### (\d{2}:\d{2}) - ([^\n]+)"
-        matches_new = re.findall(pattern_new, content)
-        
-        # 尝试匹配旧格式 - HH:MM 主题
-        pattern_old = r"- (\d{2}:\d{2}) ([^\n]+(?:\n  [^\n]+)*)"
-        matches_old = re.findall(pattern_old, content)
-        
-        # 尝试匹配 l1_add 格式 - HH-MM 主题
-        pattern_l1add = r"- (\d{2})-(\d{2}) ([^\n]+)"
-        matches_l1add = re.findall(pattern_l1add, content)
-        # 转换为 (HH:MM, 主题) 格式
-        matches_l1add = [(f"{h}:{m}", t) for h, m, t in matches_l1add]
-        
-        # 合并两种格式
-        all_matches = matches_new + [(t, d.replace('\n  ', ' ').strip()) for t, d in matches_old] + matches_l1add
-        
-        current_hour = now.hour
-        print(f"当前小时: {current_hour}, 最近{hours}小时")
-        for time_str, detail in all_matches:
-            hour = int(time_str.split(':')[0])
-            # 获取最近N小时的决策 (处理跨天情况)
+        # 判断是否在近N小时
+        in_range = False
+        if day == yesterday_str:
+            # 昨天：需要跨越凌晨
             if current_hour - hours < 0:
-                # 跨天: 0到current_hour + 24到24-(hours-current_hour)
+                if hour >= current_hour - hours + 24:
+                    in_range = True
+        elif day == today_str:
+            # 今天：正常判断
+            if current_hour - hours < 0:
                 if hour >= current_hour - hours + 24 or hour <= current_hour:
-                    decisions.append({"time": time_str, "detail": detail.strip()})
+                    in_range = True
             elif hour >= current_hour - hours and hour <= current_hour:
-                decisions.append({"time": time_str, "detail": detail.strip()})
+                in_range = True
+        
+        if in_range:
+            detail = topic[:50]
+            decisions.append({"time": f"{h}:{m_min}", "detail": detail.strip(), "date": day})
     
     print(f"📋 找到 {len(decisions)} 条近{hours}小时的决策")
     
@@ -394,15 +597,66 @@ def process_recent_decisions(hours: int = 1):
     from unified_memory import dna_reflect
     dna_reflect()
     
-    # 4. 总结概要录入L0
+    # 4. 总结概要录入L0 - 按小时分组，有则替换无则追加
     if decisions:
-        # 生成概要
-        topics = [d['detail'][:30] for d in decisions]
-        summary = f"处理{len(decisions)}个决策: {'; '.join(topics)}"
+        import re
+        from collections import defaultdict
         
-        time_str = now.strftime('%Y-%m-%d-%H')
-        l0_add_entry(time_str, summary)
-        print(f"\n✅ L0 录入: {summary}")
+        # 按小时分组
+        hour_groups = defaultdict(list)
+        for d in decisions:
+            hour = d['time'].split(':')[0]
+            hour_groups[hour].append(d['detail'][:30])
+        
+        l0_file = os.path.join(TIMELINE_DIR, f"{now.strftime('%Y-%m')}.md")
+        
+        # 读取现有内容
+        lines = []
+        if os.path.exists(l0_file):
+            with open(l0_file) as f:
+                lines = f.readlines()
+        
+        # 构建 hour -> 行号 映射
+        # 匹配格式: - 2026-03-07 HH: 内容 或 ## YYYY-MM-DD (标题行)
+        hour_to_line = {}
+        for i, line in enumerate(lines):
+            match = re.match(r'^- (\d{4}-\d{2}-\d{2}) (\d{2}): (.+)$', line.strip())
+            if match:
+                hour_to_line[match.group(2)] = i  # 用小时作为 key
+        
+        # 更新或追加
+        for hour, topics in hour_groups.items():
+            # 用L1里的日期
+            date_str = now.strftime('%Y-%m-%d')  # 默认今天
+            for d in decisions:
+                if d['time'].startswith(hour):
+                    # L1日期格式是 MM-DD，需要转成 YYYY-MM-DD
+                    md = d['date']  # MM-DD
+                    date_str = f"2026-{md}"
+                    break
+            
+            unique = []
+            seen = set()
+            for t in topics:
+                key = t[:20]
+                if key not in seen:
+                    seen.add(key)
+                    unique.append(t)
+            summary = f"处理{len(unique)}个决策: {'; '.join(unique[:4])}"
+            
+            if hour in hour_to_line:
+                # 替换现有行 - 保持原有日期格式
+                lines[hour_to_line[hour]] = f"- {date_str} {hour.zfill(2)}: {summary}\n"
+            else:
+                # 追加新行
+                lines.append(f"- {date_str} {hour.zfill(2)}: {summary}\n")
+        
+        # 写回文件
+        with open(l0_file, "w") as f:
+            f.writelines(lines)
+        
+        total = sum(len(v) for v in hour_groups.values())
+        print(f"\n✅ L0 录入: {total}条决策，按{len(hour_groups)}个小时分组")
     
     return f"✅ 处理完成: {len(decisions)}条决策已记录并录入L0"
 
@@ -416,12 +670,11 @@ def main():
   l0 load                - 加载最近时间索引
   l0 search <关键词>     - 搜索时间索引
   
-  l1 add <主题> <内容> <结论> - 添加决策
+  l1 add <时间> <主题> <背景> <决策> <上下文> <结论> - 添加决策
   l1 load [月份]         - 加载决策
   l1 search <关键词>     - 搜索决策
   
-  l2 update <会话文件>   - 更新对话索引
-  l2 load <时间>         - 加载对话
+  recent <小时数>         - 获取近N小时的记忆
   
   search <关键词>        - 统一搜索
 """)
@@ -447,14 +700,21 @@ def main():
         if len(sys.argv) < 3:
             print(l1_load())
         elif sys.argv[2] == "add":
-            time_str = datetime.now().strftime('%Y-%m-%d-%H-%m')
-            topic = sys.argv[3] if len(sys.argv) > 3 else ""
-            content = sys.argv[4] if len(sys.argv) > 4 else ""
-            conclusion = sys.argv[5] if len(sys.argv) > 5 else ""
-            print(l1_add_decision(time_str, topic, content, conclusion))
+            # 格式: l1 add "YYYY-MM-DD-HH:MM" "主题" "背景" "决策" "上下文" "结论"
+            time_str = sys.argv[3] if len(sys.argv) > 3 else datetime.now().strftime('%Y-%m-%d-%H-%M')
+            topic = sys.argv[4] if len(sys.argv) > 4 else ""
+            background = sys.argv[5] if len(sys.argv) > 5 else ""
+            decision = sys.argv[6] if len(sys.argv) > 6 else ""
+            code = sys.argv[7] if len(sys.argv) > 7 else ""
+            result = sys.argv[8] if len(sys.argv) > 8 else ""
+            print(l1_add_decision(time_str, topic, background, decision, code, result))
         elif sys.argv[2] == "search":
             for r in l1_search(sys.argv[3]):
                 print(f"  {r['month']}: 匹配")
+        elif sys.argv[2] == "detail":
+            # 格式: l1 detail "关键词"
+            keyword = sys.argv[3] if len(sys.argv) > 3 else ""
+            l1_search_detail(keyword)
     
     elif cmd == "l2":
         if sys.argv[2] == "update":
@@ -466,6 +726,67 @@ def main():
     
     elif cmd == "search":
         unified_search(sys.argv[2] if len(sys.argv) > 2 else "")
+    
+    elif cmd == "detail":
+        # 从 L1 获取详情 - 格式: lindex.py detail "关键词"
+        keyword = sys.argv[2] if len(sys.argv) > 2 else ""
+        l1_search_detail(keyword)
+    
+    elif cmd == "when":
+        # 模糊日期搜索 - 格式: lindex.py when "今天/昨天/日期/时间"
+        query = sys.argv[2] if len(sys.argv) > 2 else ""
+        l1_when(query)
+    
+    elif cmd == "recent":
+        # 获取近N小时的记忆
+        hours = int(sys.argv[2]) if len(sys.argv) > 2 else 4
+        print(f"\n📅 获取近{hours}小时的记忆:\n")
+        
+        now = datetime.now()
+        current_hour = now.hour
+        
+        # 搜索 L0
+        for f in os.listdir(TIMELINE_DIR):
+            if f.endswith(".md"):
+                path = os.path.join(TIMELINE_DIR, f)
+                with open(path) as fp:
+                    content = fp.read()
+                    lines = content.split('\n')
+                    for line in lines:
+                        if line.strip().startswith('- '):
+                            # 匹配 - 2026-03-05 HH: 格式
+                            import re
+                            match = re.match(r'^- (\d{4}-\d{2}-\d{2}) (\d{2}): (.+)$', line.strip())
+                            if match:
+                                date, hour, text = match.groups()
+                                hour_int = int(hour)
+                                # 判断是否在近N小时
+                                if current_hour - hours < 0:
+                                    if hour_int >= current_hour - hours + 24 or hour_int <= current_hour:
+                                        print(f"  {date} {hour}: {text}")
+                                elif hour_int >= current_hour - hours and hour_int <= current_hour:
+                                    print(f"  {date} {hour}: {text}")
+        
+        # 搜索 L1
+        print("\n📋 决策记录:")
+        for f in os.listdir(DECISIONS_DIR):
+            if f.endswith(".md"):
+                path = os.path.join(DECISIONS_DIR, f)
+                with open(path) as fp:
+                    content = fp.read()
+                    lines = content.split('\n')
+                    for line in lines:
+                        if line.strip().startswith('- '):
+                            import re
+                            match = re.match(r'^- (\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}) (.+)$', line.strip())
+                            if match:
+                                date, hour, minute, text = match.groups()
+                                hour_int = int(hour)
+                                if current_hour - hours < 0:
+                                    if hour_int >= current_hour - hours + 24 or hour_int <= current_hour:
+                                        print(f"  {date} {hour}:{minute} {text}")
+                                elif hour_int >= current_hour - hours and hour_int <= current_hour:
+                                    print(f"  {date} {hour}:{minute} {text}")
     
     elif cmd == "process":
         hours = int(sys.argv[2]) if len(sys.argv) > 2 else 1
