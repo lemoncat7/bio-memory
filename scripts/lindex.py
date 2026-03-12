@@ -32,28 +32,48 @@ def l0_get_file():
 
 
 def l0_add_entry(time_str: str, summary: str):
-    """添加时间索引条目"""
+    """添加时间索引条目 - 只操作最后一行，影响最小"""
     file_path = l0_get_file()
     date = time_str[:10]  # YYYY-MM-DD
+    time_hour = time_str[11:13]  # HH
     
-    content = ""
+    # 读取现有内容
+    lines = []
     if os.path.exists(file_path):
         with open(file_path) as f:
-            content = f.read()
+            lines = f.readlines()
     
-    # 检查是否已存在该日期
-    if f"## {date}" not in content:
-        content += f"\n## {date}\n"
+    # 检查最后一行是否是同一时间段
+    last_line = lines[-1] if lines else ""
+    prefix = f"- {date} {time_hour}:"
+    last_is_same_hour = last_line.strip() and prefix in last_line
     
-    # 使用 HH:MM 格式，支持同一小时多条记录
-    time_hour = time_str[11:16]  # HH:MM
-    # 直接追加，不检查是否已存在（同小时多条记录）
-    content += f"- {time_hour}: {summary}\n"
+    if last_is_same_hour:
+        # 合并到最后一行 - 去掉前缀提取内容
+        existing = last_line.strip()
+        if prefix in existing:
+            content_part = existing[len(prefix):].strip()
+        else:
+            content_part = existing
+        new_content = content_part + "; " + summary
+        lines[-1] = f"{prefix} {new_content}\n"
+    else:
+        # 不是当前时间段，追加新行
+        # 先检查是否需要添加日期标题
+        if not lines or f"## {date}" not in "".join(lines[-5:]):
+            # 需要添加日期标题
+            if lines and lines[-1].strip():
+                lines.append("\n")
+            lines.append(f"## {date}\n")
+        
+        # 追加新行
+        lines.append(f"- {date} {time_hour}: {summary}\n")
     
+    # 写回文件
     with open(file_path, "w") as f:
-        f.write(content)
+        f.writelines(lines)
     
-    return f"✅ L0 添加: {date} {time_hour}: {summary}"
+    return f"✅ L0 更新: {date} {time_hour}: {summary}"
 
 
 def l0_load_recent(months: int = 3):
@@ -597,9 +617,8 @@ def process_recent_decisions(hours: int = 1):
     from unified_memory import dna_reflect
     dna_reflect()
     
-    # 4. 总结概要录入L0 - 按小时分组，有则替换无则追加
+    # 4. 总结概要录入L0 - 只操作最后一行，影响最小
     if decisions:
-        import re
         from collections import defaultdict
         
         # 按小时分组
@@ -609,32 +628,28 @@ def process_recent_decisions(hours: int = 1):
             hour_groups[hour].append(d['detail'][:30])
         
         l0_file = os.path.join(TIMELINE_DIR, f"{now.strftime('%Y-%m')}.md")
+        today = now.strftime("%Y-%m-%d")
         
-        # 读取现有内容
+        # 只读取最后一行
+        last_line = ""
+        if os.path.exists(l0_file):
+            with open(l0_file) as f:
+                lines = f.readlines()
+                last_line = lines[-1] if lines else ""
+        
+        # 读取所有行用于修改
         lines = []
         if os.path.exists(l0_file):
             with open(l0_file) as f:
                 lines = f.readlines()
         
-        # 构建 hour -> 行号 映射
-        # 匹配格式: - 2026-03-07 HH: 内容 或 ## YYYY-MM-DD (标题行)
-        hour_to_line = {}
-        for i, line in enumerate(lines):
-            match = re.match(r'^- (\d{4}-\d{2}-\d{2}) (\d{2}): (.+)$', line.strip())
-            if match:
-                hour_to_line[match.group(2)] = i  # 用小时作为 key
+        # 检查最后一行是否是今天当前小时
+        current_hour = now.strftime("%H")
+        last_is_current = last_line.strip() and f"- {today} {current_hour}:" in last_line
         
-        # 更新或追加
-        for hour, topics in hour_groups.items():
-            # 用L1里的日期
-            date_str = now.strftime('%Y-%m-%d')  # 默认今天
-            for d in decisions:
-                if d['time'].startswith(hour):
-                    # L1日期格式是 MM-DD，需要转成 YYYY-MM-DD
-                    md = d['date']  # MM-DD
-                    date_str = f"2026-{md}"
-                    break
-            
+            # 按小时排序处理
+        for hour in sorted(hour_groups.keys()):
+            topics = hour_groups[hour]
             unique = []
             seen = set()
             for t in topics:
@@ -644,19 +659,34 @@ def process_recent_decisions(hours: int = 1):
                     unique.append(t)
             summary = f"处理{len(unique)}个决策: {'; '.join(unique[:4])}"
             
-            if hour in hour_to_line:
-                # 替换现有行 - 保持原有日期格式
-                lines[hour_to_line[hour]] = f"- {date_str} {hour.zfill(2)}: {summary}\n"
+            prefix = f"- {today} {hour.zfill(2)}:"
+            
+            # 检查最后一行是否也是这个小时
+            last_is_same_hour = last_line.strip() and f"- {today} {hour.zfill(2)}:" in last_line
+            
+            if last_is_same_hour:
+                # 合并到最后一行 - 去掉前缀，只保留内容
+                existing = last_line.strip()
+                content_part = existing
+                if prefix in content_part:
+                    content_part = content_part[len(prefix):].strip()
+                new_content = content_part + "; " + summary
+                lines[-1] = f"{prefix} {new_content}\n"
             else:
                 # 追加新行
-                lines.append(f"- {date_str} {hour.zfill(2)}: {summary}\n")
+                # 先检查是否需要添加日期标题
+                if not lines or f"## {today}" not in "".join(lines[-3:]):
+                    if lines and lines[-1].strip():
+                        lines.append("\n")
+                    lines.append(f"## {today}\n")
+                lines.append(f"- {today} {hour.zfill(2)}: {summary}\n")
         
         # 写回文件
         with open(l0_file, "w") as f:
             f.writelines(lines)
         
         total = sum(len(v) for v in hour_groups.values())
-        print(f"\n✅ L0 录入: {total}条决策，按{len(hour_groups)}个小时分组")
+        print(f"\n✅ L0 更新: {total}条决策，按{len(hour_groups)}个小时分组")
     
     return f"✅ 处理完成: {len(decisions)}条决策已记录并录入L0"
 
