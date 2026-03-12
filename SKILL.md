@@ -307,17 +307,61 @@ def process_task():
 
 ## 心跳中使用
 
-在 `HEARTBEAT.md` 中添加：
+### 心跳记录对话
+
+心跳触发时会自动记录对话到 L1 决策索引：
+
+#### 对话记录格式
 
 ```markdown
-## 3. DNA 记忆检查
+- 2026-03-12 22:38 Matrix房间配置更新
+  背景: 哥哥告知房间ID变更
+  上下文: 从 UBqTjAJExNAwjFCSHX 改为 fKnRThJZyJIFYFnUud
+  决策: 批量更新所有配置文件
+  结论: 所有配置已更新完成
+```
 
-运行: python3 ~/.openclaw/workspace/skills/bio-memory/scripts/unified_memory.py dna_stats
-如果 > 20 条，运行: python3 ~/.openclaw/workspace/skills/bio-memory/scripts/unified_memory.py dna_reflect
+#### 自动记录流程
 
-## 4. Process 决策处理
+心跳执行时会：
+1. 调用 `sessions_history(limit=25)` 获取最近消息
+2. 过滤出 25 分钟内的真正用户消息（排除 System/Heartbeat）
+3. 使用 `echo >>` 追加写入到 `memory/decisions/YYYY-MM.md`
+4. 调用 `lindex.py process 1` 将决策录入 DNA 记忆
 
-运行: python3 ~/.openclaw/workspace/skills/bio-memory/scripts/lindex.py process 1
+#### 查看对话记录
+
+```bash
+# 按时间查看
+python3 lindex.py when "今天"
+
+# 搜索具体事件
+python3 lindex.py detail "Matrix"
+```
+
+---
+
+### 定时任务 DNA
+
+#### 定时任务列表
+
+| 任务名 | 间隔 | 功能 |
+|--------|------|------|
+| memory_4h_check | 4小时 | DNA 统计 + 反思 |
+| l1_process | 1小时 | 从 L1 处理近1小时决策到 DNA |
+| skill_note_4h | 4小时 | 技能笔记处理 |
+
+#### DNA 自动任务
+
+```bash
+# DNA 统计（短期记忆 > 20 条时触发反思）
+python3 unified_memory.py dna_stats
+
+# 反思归纳（自动提权到长期）
+python3 unified_memory.py dna_reflect
+
+# 自动处理 L1 → DNA
+python3 lindex.py process 1
 ```
 
 ---
